@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from sklearn.model_selection import train_test_split
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 
 
 def load_manifest(frames_dir: str):
@@ -12,8 +12,7 @@ def load_manifest(frames_dir: str):
         raise FileNotFoundError(
             f"manifest.csv not found at {manifest_path}. Run preprocess.py first."
         )
-    df = pd.read_csv(manifest_path)
-    return df
+    return pd.read_csv(manifest_path)
 
 
 def split_dataframe(df: pd.DataFrame, train=0.72, val=0.14, seed=42):
@@ -29,6 +28,19 @@ def split_dataframe(df: pd.DataFrame, train=0.72, val=0.14, seed=42):
         train_df.reset_index(drop=True),
         val_df.reset_index(drop=True),
         test_df.reset_index(drop=True),
+    )
+
+
+def make_balanced_sampler(df: pd.DataFrame) -> WeightedRandomSampler:
+    label_map  = {"REAL": 0, "FAKE": 1}
+    labels     = df["Label"].map(label_map).values
+    class_counts = np.bincount(labels)                        # [n_real, n_fake]
+    class_weights = 1.0 / class_counts                       # inverse frequency
+    sample_weights = class_weights[labels]                   # per-sample weight
+    return WeightedRandomSampler(
+        weights=sample_weights,
+        num_samples=len(sample_weights),
+        replacement=True,
     )
 
 
@@ -51,7 +63,6 @@ class FFppFrameDataset(Dataset):
 
         frame = cv2.imread(str(img_path))
         if frame is None:
-            # Corrupted file fallback
             frame = np.zeros((224, 224, 3), dtype=np.uint8)
         else:
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -68,8 +79,8 @@ def build_dataloaders(cfg):
     df = load_manifest(cfg.FRAMES_DIR)
     train_df, val_df, test_df = split_dataframe(df)
 
-    splits = {"train": train_df, "val": val_df, "test": test_df}
-    loaders = {}
+    splits   = {"train": train_df, "val": val_df, "test": test_df}
+    loaders  = {}
 
     for split, split_df in splits.items():
         ds = FFppFrameDataset(
@@ -77,14 +88,32 @@ def build_dataloaders(cfg):
             df=split_df,
             transform=get_transforms(split, cfg.FACE_SIZE),
         )
-        loaders[split] = DataLoader(
-            ds,
-            batch_size=cfg.BATCH_SIZE,
-            shuffle=(split == "train"),
-            num_workers=cfg.NUM_WORKERS,
-            pin_memory=True,
-            persistent_workers=(cfg.NUM_WORKERS > 0),
+
+        if split == "train":
+            sampler = make_balanced_sampler(split_df)
+            loader  = DataLoader(
+                ds,
+                batch_size=cfg.BATCH_SIZE,
+                sampler=sampler,              # replaces shuffle=True
+                num_workers=cfg.NUM_WORKERS,
+                pin_memory=True,
+                persistent_workers=(cfg.NUM_WORKERS > 0),
+            )
+        else:
+            loader = DataLoader(
+                ds,
+                batch_size=cfg.BATCH_SIZE,
+                shuffle=False,
+                num_workers=cfg.NUM_WORKERS,
+                pin_memory=True,
+                persistent_workers=(cfg.NUM_WORKERS > 0),
+            )
+
+        loaders[split] = loader
+        print(
+            f"{split}: {len(ds)} frames | "
+            f"real: {(split_df['Label']=='REAL').sum()} | "
+            f"fake: {(split_df['Label']=='FAKE').sum()}"
         )
-        print(f"{split}: {len(ds)} frames | real: {(split_df['Label']=='REAL').sum()} | fake: {(split_df['Label']=='FAKE').sum()}")
 
     return loaders

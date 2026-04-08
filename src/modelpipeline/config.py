@@ -13,9 +13,9 @@ class Config:
     TEST_SPLIT  = "test"
 
     BATCH_SIZE  = 32
-    NUM_WORKERS = 8
-    EPOCHS      = 5
-    LR          = 1e-4
+    NUM_WORKERS = 10
+    EPOCHS      = 10
+    LR          = 3e-5
     WEIGHT_DECAY = 1e-5
     LABEL_SMOOTHING = 0.1
 
