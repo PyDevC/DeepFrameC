@@ -6,17 +6,17 @@ class Config:
     COMPRESSION = "c23"
     FRAMES_PER_VIDEO = 10
     FRAMES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "FaceForensics_transformed")
-    FACE_SIZE = 22
+    FACE_SIZE = 380          # EfficientNet-B4 native resolution (was 22 — too small!)
 
     TRAIN_SPLIT = "train"
     VAL_SPLIT   = "val"
     TEST_SPLIT  = "test"
 
-    BATCH_SIZE  = 32
+    BATCH_SIZE  = 16         # Reduced to fit larger images in VRAM
     NUM_WORKERS = 10
-    EPOCHS      = 10
-    LR          = 3e-5
-    WEIGHT_DECAY = 1e-5
+    EPOCHS      = 20         # More epochs for convergence
+    LR          = 1e-4       # Higher LR; 3e-5 was too slow to escape random chance
+    WEIGHT_DECAY = 1e-4
     LABEL_SMOOTHING = 0.1
 
     BACKBONE    = "efficientnet_b4"

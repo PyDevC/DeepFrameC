@@ -48,7 +48,9 @@ def process_video(args):
             continue
 
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        frame = cv2.resize(frame, (face_size, face_size), interpolation=cv2.INTER_LINEAR)
+        # Resize to model's native input size (cfg.FACE_SIZE, e.g. 380 for EfficientNet-B4).
+        # If you previously ran this with FACE_SIZE=22, delete FRAMES_DIR and re-run.
+        frame = cv2.resize(frame, (face_size, face_size), interpolation=cv2.INTER_AREA)
 
         # Save as high-quality JPEG
         save_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR) # Keep the format same

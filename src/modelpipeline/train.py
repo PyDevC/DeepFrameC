@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 from sklearn.metrics import roc_auc_score
 from tqdm import tqdm
 import numpy as np
@@ -15,23 +15,31 @@ def train():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
 
-    loaders = build_dataloaders(cfg)
+    loaders, train_df = build_dataloaders(cfg)   # single call — was called twice before
     model = DeepFakeDetector(
         backbone_name=cfg.BACKBONE,
         pretrained=cfg.PRETRAINED,
         dropout=cfg.DROPOUT,
         num_classes=cfg.NUM_CLASSES,
     ).to(device)
-
-    loaders, train_df = build_dataloaders(cfg)
     n_real = (train_df["Label"] == "REAL").sum()
     n_fake = (train_df["Label"] == "FAKE").sum()
     total  = n_real + n_fake
     class_weights = torch.tensor([total/n_real, total/n_fake], dtype=torch.float).to(device)
     criterion = nn.CrossEntropyLoss(weight=class_weights, label_smoothing=cfg.LABEL_SMOOTHING)
 
-    optimizer = AdamW(model.parameters(), lr=cfg.LR, weight_decay=cfg.WEIGHT_DECAY)
-    scheduler = CosineAnnealingLR(optimizer, T_max=cfg.EPOCHS, eta_min=1e-6)
+    # Differential LR: backbone gets 10x lower LR than the classification head.
+    # This preserves pretrained ImageNet features while training the head aggressively.
+    optimizer = AdamW([
+        {"params": model.backbone.parameters(), "lr": cfg.LR / 10},
+        {"params": model.classifier.parameters(), "lr": cfg.LR},
+    ], weight_decay=cfg.WEIGHT_DECAY)
+
+    # 3-epoch linear warmup → cosine decay for the rest
+    warmup_epochs = 3
+    warmup = LinearLR(optimizer, start_factor=0.1, end_factor=1.0, total_iters=warmup_epochs)
+    cosine = CosineAnnealingLR(optimizer, T_max=cfg.EPOCHS - warmup_epochs, eta_min=1e-6)
+    scheduler = SequentialLR(optimizer, schedulers=[warmup, cosine], milestones=[warmup_epochs])
     scaler = torch.amp.grad_scaler.GradScaler(device)
 
     best_auc = 0.0

@@ -116,4 +116,4 @@ def build_dataloaders(cfg):
             f"fake: {(split_df['Label']=='FAKE').sum()}"
         )
 
-    return loaders
+    return loaders, train_df
